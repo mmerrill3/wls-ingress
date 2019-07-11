@@ -125,7 +125,7 @@ func NetworkingIngressAvailable(client clientset.Interface) bool {
 		return false
 	}
 
-	klog.Errorf("%v", serverVersion)
+	klog.Infof("K8s version - %v", serverVersion)
 	runningVersion, _ := version.ParseGeneric(serverVersion.String())
 	if err != nil {
 		klog.Errorf("unexpected error parsing running Kubernetes version: %v", err)

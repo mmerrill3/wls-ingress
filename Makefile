@@ -16,8 +16,8 @@
 all: all-container
 
 # Use the 0.0 tag for testing, it shouldn't clobber any release builds
-TAG ?= 0.0.1
-REGISTRY ?= mmerrill3/wls-ingress
+TAG ?= latest
+REGISTRY ?= mmerrill35
 DOCKER ?= docker
 SED_I ?= sed -i
 GOHOSTOS ?= $(shell go env GOHOSTOS)
@@ -54,7 +54,7 @@ export GOBUILD_FLAGS
 export REPO_INFO
 export BUSTED_ARGS
 
-IMGNAME = wls-ingress-controller
+IMGNAME = wls-ingress
 IMAGE = $(REGISTRY)/$(IMGNAME)
 MULTI_ARCH_IMG = $(IMAGE)-$(ARCH)
 
@@ -67,7 +67,7 @@ endif
 
 TEMP_DIR := $(shell mktemp -d)
 
-DOCKERFILE := $(TEMP_DIR)/rootfs/Dockerfile
+DOCKERFILE := $(TEMP_DIR)/Dockerfile
 
 .PHONY: sub-container-%
 sub-container-%:
@@ -90,41 +90,20 @@ container: clean-container .container-$(ARCH)
 .container-$(ARCH):
 	mkdir -p $(TEMP_DIR)/rootfs
 	cp bin/$(ARCH)/wls-ingress-controller $(TEMP_DIR)/rootfs/wls-ingress-controller
-	cp bin/$(ARCH)/dbg $(TEMP_DIR)/rootfs/dbg
-
-	cp -RP ./* $(TEMP_DIR)
+	cp Dockerfile $(TEMP_DIR)/Dockerfile
 	$(SED_I) "s|BASEIMAGE|$(BASEIMAGE)|g" $(DOCKERFILE)
-	$(SED_I) "s|DUMB_ARCH|$(DUMB_ARCH)|g" $(DOCKERFILE)
-
-ifeq ($(ARCH),amd64)
-	# When building "normally" for amd64, remove the whole line, it has no part in the amd64 image
-	$(SED_I) "/CROSS_BUILD_/d" $(DOCKERFILE)
-else
-	# When cross-building, only the placeholder "CROSS_BUILD_" should be removed
-	curl -sSL https://github.com/multiarch/qemu-user-static/releases/download/$(QEMUVERSION)/x86_64_qemu-$(QEMUARCH)-static.tar.gz | tar -xz -C $(TEMP_DIR)/rootfs
-	$(SED_I) "s/CROSS_BUILD_//g" $(DOCKERFILE)
-endif
-
-	@$(DOCKER) build --no-cache --pull -t $(MULTI_ARCH_IMG):$(TAG) $(TEMP_DIR)/rootfs
-
-ifeq ($(ARCH), amd64)
-	# This is for maintaining backward compatibility
-	@$(DOCKER) tag $(MULTI_ARCH_IMG):$(TAG) $(IMAGE):$(TAG)
-endif
+	@$(DOCKER) build --no-cache --pull -t $(IMAGE):$(TAG) $(TEMP_DIR)
 
 .PHONY: clean-container
 clean-container:
-	@$(DOCKER) rmi -f $(MULTI_ARCH_IMG):$(TAG) || true
+	@$(DOCKER) rmi -f $(IMAGE):$(TAG) || true
 
 .PHONY: push
 push: .push-$(ARCH)
 
 .PHONY: .push-$(ARCH)
 .push-$(ARCH):
-	$(DOCKER) push $(MULTI_ARCH_IMG):$(TAG)
-ifeq ($(ARCH), amd64)
 	$(DOCKER) push $(IMAGE):$(TAG)
-endif
 
 .PHONY: build
 build:

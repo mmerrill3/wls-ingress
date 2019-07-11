@@ -94,6 +94,16 @@ func GetBoolAnnotation(name string, ing *networking.Ingress) (bool, error) {
 }
 
 // GetStringAnnotation extracts a string from an Ingress annotation
+func GetRawStringAnnotation(name string, ing *networking.Ingress) (string, error) {
+	err := checkAnnotation(name, ing)
+	if err != nil {
+		return "", err
+	}
+
+	return ingAnnotations(ing.GetAnnotations()).parseString(name)
+}
+
+// GetStringAnnotation extracts a string from an Ingress annotation
 func GetStringAnnotation(name string, ing *networking.Ingress) (string, error) {
 	v := GetAnnotationWithPrefix(name)
 	err := checkAnnotation(v, ing)

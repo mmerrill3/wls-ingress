@@ -24,9 +24,10 @@ var (
 // Controller defines base metrics about the ingress controller
 type Controller struct {
 	prometheus.Collector
-	cookieAdds  *prometheus.CounterVec
-	constLabels prometheus.Labels
-	labels      prometheus.Labels
+	cookieAdds     *prometheus.CounterVec
+	constLabels    prometheus.Labels
+	labels         prometheus.Labels
+	leaderElection *prometheus.GaugeVec
 }
 
 // NewController creates a new prometheus collector for the
@@ -53,6 +54,15 @@ func NewController(pod, namespace, class string) *Controller {
 			},
 			operation,
 		),
+		leaderElection: prometheus.NewGaugeVec(
+			prometheus.GaugeOpts{
+				Namespace:   PrometheusNamespace,
+				Name:        "leader_election_status",
+				Help:        "Gauge reporting status of the leader election, 0 indicates follower, 1 indicates leader. 'name' is the string used to identify the lease",
+				ConstLabels: constLabels,
+			},
+			[]string{"name"},
+		),
 	}
 
 	return cm
@@ -65,6 +75,16 @@ func (cm *Controller) IncCookieCount(namespace, name string) {
 		"ingress":   name,
 	}
 	cm.cookieAdds.MustCurryWith(cm.constLabels).With(labels).Inc()
+}
+
+// OnStartedLeading indicates the pod was elected as the leader
+func (cm *Controller) OnStartedLeading(electionID string) {
+	cm.leaderElection.WithLabelValues(electionID).Set(1.0)
+}
+
+// OnStoppedLeading indicates the pod stopped being the leader
+func (cm *Controller) OnStoppedLeading(electionID string) {
+	cm.leaderElection.WithLabelValues(electionID).Set(0)
 }
 
 // Describe implements prometheus.Collector

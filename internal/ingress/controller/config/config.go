@@ -13,10 +13,30 @@ limitations under the License.
 
 package config
 
+import (
+	"github.com/mmerrill3/wls-ingress/internal/ingress"
+)
+
 // ListenPorts describe the ports required to run the
 // WLS Ingress controller
 type ListenPorts struct {
 	HTTP    int
 	Health  int
 	Default int
+}
+
+// ConfigurationBackend represents the mapping of hostnames to backend endpoints
+type ConfigurationBackend struct {
+	// The backend for the defined hostname (what port, what endpoints, what service?)
+	Backend *ingress.Backend
+	// The hostname of the backend
+	Hostname string
+}
+
+// Configuration represents all the hostnames and backend this controller managers
+type Configuration struct {
+	Services []*ConfigurationBackend
+
+	// ControllerPodsCount contains the list of running ingress controller Pod(s)
+	ControllerPodsCount int
 }

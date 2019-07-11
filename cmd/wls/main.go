@@ -219,9 +219,7 @@ func createApiserverClient(apiserverHost, kubeConfig string) (*kubernetes.Client
 func handleFatalInitError(err error) {
 	klog.Fatalf("Error while initiating a connection to the Kubernetes API server. "+
 		"This could mean the cluster is misconfigured (e.g. it has invalid API server certificates "+
-		"or Service Accounts configuration). Reason: %s\n"+
-		"Refer to the troubleshooting guide for more information: "+
-		"https://kubernetes.github.io/ingress-nginx/troubleshooting/",
+		"or Service Accounts configuration). Reason: %s\n",
 		err)
 }
 

@@ -258,7 +258,7 @@ func New(namespace string,
 		AddFunc: func(obj interface{}) {
 			ing, _ := toIngress(obj)
 			if !class.IsValid(ing) {
-				a, _ := parser.GetStringAnnotation(class.IngressKey, ing)
+				a, _ := parser.GetRawStringAnnotation(class.IngressKey, ing)
 				klog.Infof("ignoring add for ingress %v based on annotation %v with value %v", ing.Name, class.IngressKey, a)
 				return
 			}
@@ -457,8 +457,7 @@ func (s *k8sStore) GetServiceEndpoints(key string) (*corev1.Endpoints, error) {
 	return s.listers.Endpoint.ByKey(key)
 }
 
-// Run initiates the synchronization of the informers and the initial
-// synchronization of the secrets.
+// Run initiates the synchronization of the informers
 func (s *k8sStore) Run(stopCh chan struct{}) {
 	// start informers
 	s.informers.Run(stopCh)

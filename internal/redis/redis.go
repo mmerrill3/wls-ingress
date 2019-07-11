@@ -14,6 +14,9 @@ limitations under the License.
 package redis
 
 import (
+	"sync"
+	"time"
+
 	"github.com/go-redis/redis"
 	"k8s.io/klog"
 )
@@ -27,10 +30,39 @@ type Manager struct {
 	MasterName string
 	// A seed list of host:port addresses of sentinel nodes.
 	SentinelAddrs []string
+	//synchronization mutex for cleaning
+	mutx sync.Mutex
+}
+
+//Clean cleans up the stale connections that are not in the list passed in.
+func (r *Manager) Clean(endpoints []string) error {
+	r.mutx.Lock()
+	defer r.mutx.Unlock()
+	klog.Infof("cleaning endpoints that are not in %v", endpoints)
+	entries, err := r.getAllEntries()
+	if err != nil {
+		klog.Errorf("could not get clean up stale entries with list %v - %v", endpoints, err)
+		return err
+	}
+	for k, v := range entries {
+		for _, endpoint := range endpoints {
+			if contains(endpoints, endpoint) {
+				break
+			} else {
+				klog.V(2).Infof("removing entry for key %v with value %v", k, v)
+				cmd := r.client.Del(k)
+				if cmd.Err() != nil {
+					klog.Errorf("error deleting remote key - %v", cmd.Err())
+				}
+			}
+		}
+	}
+	return nil
 }
 
 //Start starts the redis communication
 func (r *Manager) Start() error {
+	r.mutx = sync.Mutex{}
 	option := redis.FailoverOptions{
 		MasterName:    r.MasterName,
 		SentinelAddrs: r.SentinelAddrs,
@@ -47,7 +79,7 @@ func (r *Manager) Start() error {
 //AddCookie publishes the jsessionid cookie to redis for an endpoint
 func (r *Manager) AddCookie(jsession, endpoint string) error {
 	klog.V(2).Infof("adding entry for key %v with value %v", jsession, endpoint)
-	cmd := r.client.Set(jsession, endpoint, 0)
+	cmd := r.client.Set(jsession, endpoint, time.Hour)
 	if cmd.Err() != nil {
 		klog.Errorf("error setting remote value - %v", cmd.Err())
 	}
@@ -56,19 +88,12 @@ func (r *Manager) AddCookie(jsession, endpoint string) error {
 
 //RemoveEndpoint removes the cookie entries for the endpoint when its pod goes away
 func (r *Manager) RemoveEndpoint(endpoint string) error {
-	cmd := r.client.Keys("*")
-	if cmd.Err() != nil {
-		if cmd.Err() == redis.Nil {
-			return nil
-		}
-		klog.Errorf("error getting all remote keys - %v", cmd.Err())
-		return cmd.Err()
+	entrypMap, error := r.getAllEntries()
+	if error != nil {
+		klog.V(2).Info("No keys in redis")
+		return nil
 	}
-	for _, cookie := range cmd.Val() {
-		upstream, err := r.GetEndpoint(cookie)
-		if err != nil {
-			klog.Errorf("error getting remote value - %v", err)
-		}
+	for cookie, upstream := range entrypMap {
 		if endpoint == upstream {
 			klog.V(2).Infof("removing entry for key %v with value %v", cookie, upstream)
 			cmd := r.client.Del(cookie)
@@ -80,8 +105,30 @@ func (r *Manager) RemoveEndpoint(endpoint string) error {
 	return nil
 }
 
+//getAllEntries gets all the current entries
+func (r *Manager) getAllEntries() (map[string]string, error) {
+	entryMap := make(map[string]string)
+	cmd := r.client.Keys("*")
+	if cmd.Err() != nil {
+		if cmd.Err() == redis.Nil {
+			return nil, nil
+		}
+		klog.Errorf("error getting all remote keys - %v", cmd.Err())
+		return nil, cmd.Err()
+	}
+	for _, cookie := range cmd.Val() {
+		endpoint, err := r.GetEndpoint(cookie, false)
+		if err != nil {
+			klog.Errorf("error getting remote value - %v", err)
+			continue
+		}
+		entryMap[cookie] = endpoint
+	}
+	return entryMap, nil
+}
+
 //GetEndpoint returns the endpoint (IP Address) for the jsession cookie
-func (r *Manager) GetEndpoint(jsession string) (string, error) {
+func (r *Manager) GetEndpoint(jsession string, updateExpire bool) (string, error) {
 	cmd := r.client.Get(jsession)
 	if cmd.Err() != nil {
 		if cmd.Err() == redis.Nil {
@@ -91,6 +138,12 @@ func (r *Manager) GetEndpoint(jsession string) (string, error) {
 			return "", cmd.Err()
 		}
 	}
+	if updateExpire {
+		expireCmd := r.client.Expire(jsession, time.Hour)
+		if expireCmd.Err() != nil {
+			klog.Errorf("could not update the expiration on entry %v - %v", jsession, expireCmd.Err())
+		}
+	}
 	return cmd.Val(), nil
 }
 
@@ -98,4 +151,14 @@ func (r *Manager) GetEndpoint(jsession string) (string, error) {
 func (r *Manager) Stop() error {
 	r.client.Close()
 	return nil
+}
+
+// Contains tells whether a contains x.
+func contains(a []string, x string) bool {
+	for _, n := range a {
+		if x == n {
+			return true
+		}
+	}
+	return false
 }

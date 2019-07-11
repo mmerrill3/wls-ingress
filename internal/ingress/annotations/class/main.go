@@ -27,12 +27,12 @@ const (
 )
 
 var (
-	// DefaultClass defines the default class used in the nginx ingres controller
+	// DefaultClass defines the default class used in the wls ingress controller
 	DefaultClass = "wls"
 
 	// IngressClass sets the runtime ingress class to use
 	// An empty string means accept all ingresses without
-	// annotation and the ones configured with class nginx
+	// annotation and the ones configured with class wls
 	IngressClass = "wls"
 )
 

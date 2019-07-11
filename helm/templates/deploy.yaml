@@ -1,0 +1,132 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  labels:
+    app: {{ template "wls-ingress.name" . }}
+    chart: {{ .Chart.Name }}-{{ .Chart.Version }}
+    component: "{{ .Values.controller.name }}"
+    heritage: {{ .Release.Service }}
+    release: {{ .Release.Name }}
+  name: {{ template "wls-ingress.controller.fullname" . }}
+spec:
+  replicas: {{ .Values.controller.replicaCount }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  strategy:
+{{ toYaml .Values.controller.updateStrategy | indent 4 }}
+  minReadySeconds: {{ .Values.controller.minReadySeconds }}
+  template:
+    metadata:
+      {{- if .Values.controller.podAnnotations }}
+      annotations:
+      {{- range $key, $value := .Values.controller.podAnnotations }}
+        {{ $key }}: {{ $value | quote }}
+      {{- end }}
+      {{- end }}
+      labels:
+        app: {{ template "wls-ingress.name" . }}
+        component: "{{ .Values.controller.name }}"
+        release: {{ .Release.Name }}
+        {{- if .Values.controller.podLabels }}
+{{ toYaml .Values.controller.podLabels | indent 8 }}
+        {{- end }}
+    spec:
+      dnsPolicy: {{ .Values.controller.dnsPolicy }}
+      {{- if .Values.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml .Values.imagePullSecrets | indent 8 }}
+      {{- end }}
+{{- if .Values.controller.priorityClassName }}
+      priorityClassName: "{{ .Values.controller.priorityClassName }}"
+{{- end }}
+      {{- if .Values.controller.podSecurityContext }}
+      securityContext:
+{{ toYaml .Values.controller.podSecurityContext | indent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ template "wls-ingress.name" . }}-{{ .Values.controller.name }}
+          image: "{{ .Values.controller.image.repository }}:{{ .Values.controller.image.tag }}"
+          imagePullPolicy: "{{ .Values.controller.image.pullPolicy }}"
+          {{- if .Values.controller.lifecycle }}
+          lifecycle:
+{{ toYaml .Values.controller.lifecycle | indent 12 }}
+          {{- end }}
+          args:
+            - /wls-ingress-controller
+          {{- if .Values.controller.publishService.enabled }}
+            - --publish-service={{ template "wls-ingress.controller.publishServicePath" . }}
+          {{- end }}
+            - --election-id={{ .Values.controller.electionID }}
+            - --ingress-class={{ .Values.controller.ingressClass }}
+          {{- range $key, $value := .Values.controller.extraArgs }}
+            {{- if $value }}
+            - --{{ $key }}={{ $value }}
+            {{- else }}
+            - --{{ $key }}
+            {{- end }}
+          {{- end }}
+          securityContext:
+            capabilities:
+                drop:
+                - ALL
+                add:
+                - NET_BIND_SERVICE
+            runAsUser: {{ .Values.controller.image.runAsUser }}
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          {{- if .Values.controller.extraEnvs }}
+{{ toYaml .Values.controller.extraEnvs | indent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.controller.livenessProbe.port }}
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.controller.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controller.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.controller.livenessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.controller.livenessProbe.successThreshold }}
+            failureThreshold: {{ .Values.controller.livenessProbe.failureThreshold }}
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: stats
+              containerPort: 18080
+              protocol: TCP
+            - name: metrics
+              containerPort: 10254
+              protocol: TCP
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: {{ .Values.controller.readinessProbe.port }}
+              scheme: HTTP
+            initialDelaySeconds: {{ .Values.controller.readinessProbe.initialDelaySeconds }}
+            periodSeconds: {{ .Values.controller.readinessProbe.periodSeconds }}
+            timeoutSeconds: {{ .Values.controller.readinessProbe.timeoutSeconds }}
+            successThreshold: {{ .Values.controller.readinessProbe.successThreshold }}
+            failureThreshold: {{ .Values.controller.readinessProbe.failureThreshold }}
+          resources:
+{{ toYaml .Values.controller.resources | indent 12 }}
+      hostNetwork: {{ .Values.controller.hostNetwork }}
+    {{- if .Values.controller.nodeSelector }}
+      nodeSelector:
+{{ toYaml .Values.controller.nodeSelector | indent 8 }}
+    {{- end }}
+    {{- if .Values.controller.tolerations }}
+      tolerations:
+{{ toYaml .Values.controller.tolerations | indent 8 }}
+    {{- end }}
+    {{- if .Values.controller.affinity }}
+      affinity:
+{{ toYaml .Values.controller.affinity | indent 8 }}
+    {{- end }}
+      serviceAccountName: {{ template "wls-ingress.serviceAccountName" . }}
+      terminationGracePeriodSeconds: 60

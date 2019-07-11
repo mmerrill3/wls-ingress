@@ -26,6 +26,8 @@ type Collector interface {
 	IncCookieCount(namespace, name string)
 	Start()
 	Stop()
+	OnStartedLeading(string)
+	OnStoppedLeading(string)
 }
 
 type collector struct {
@@ -60,4 +62,14 @@ func (c *collector) Start() {
 
 func (c *collector) Stop() {
 	c.registry.Unregister(c.ingressController)
+}
+
+// OnStartedLeading indicates the pod was elected as the leader
+func (c *collector) OnStartedLeading(electionID string) {
+	c.ingressController.OnStartedLeading(electionID)
+}
+
+// OnStoppedLeading indicates the pod stopped being the leader
+func (c *collector) OnStoppedLeading(electionID string) {
+	c.ingressController.OnStoppedLeading(electionID)
 }

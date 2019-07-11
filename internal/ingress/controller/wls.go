@@ -17,18 +17,23 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/eapache/channels"
 	"github.com/mmerrill3/wls-ingress/internal/file"
-	"github.com/mmerrill3/wls-ingress/internal/ingress"
+	"github.com/mmerrill3/wls-ingress/internal/ingress/annotations/class"
+	wls_config "github.com/mmerrill3/wls-ingress/internal/ingress/controller/config"
 	"github.com/mmerrill3/wls-ingress/internal/ingress/controller/store"
 	wls_handler "github.com/mmerrill3/wls-ingress/internal/ingress/handler/http"
 	"github.com/mmerrill3/wls-ingress/internal/ingress/metric"
+	"github.com/mmerrill3/wls-ingress/internal/ingress/status"
 	"github.com/mmerrill3/wls-ingress/internal/k8s"
 	"github.com/mmerrill3/wls-ingress/internal/redis"
+	"github.com/mmerrill3/wls-ingress/internal/task"
 	clientv1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/flowcontrol"
 	"k8s.io/klog"
 	"k8s.io/kubernetes/pkg/util/filesystem"
 )
@@ -44,14 +49,16 @@ func NewWLSController(config *Configuration, mc metric.Collector, fs file.Filesy
 	n := &WLSController{
 		cfg:             config,
 		stopCh:          make(chan struct{}),
+		updateCh:        channels.NewRingChannel(1024),
 		stopLock:        &sync.Mutex{},
 		fileSystem:      fs,
-		runningConfig:   new(ingress.Configuration),
+		runningConfig:   new(wls_config.Configuration),
 		metricCollector: mc,
 		redisManager: &redis.Manager{
 			MasterName:    "mymaster",
-			SentinelAddrs: []string{"redis-redis-ha:26379"},
+			SentinelAddrs: []string{"redis-redis-ha.redis:26379"},
 		},
+		syncRateLimiter: flowcontrol.NewTokenBucketRateLimiter(config.SyncRateLimit, 1),
 	}
 
 	pod, err := k8s.GetPodDetails(config.Client)
@@ -67,12 +74,24 @@ func NewWLSController(config *Configuration, mc metric.Collector, fs file.Filesy
 		n.updateCh,
 		pod)
 
+	n.syncQueue = task.NewTaskQueue(n.syncIngress)
+
 	proxyMux := http.NewServeMux()
-	handler, err := wls_handler.InstallHandler(proxyMux)
+	handler, err := wls_handler.InstallHandler(proxyMux, n.runningConfig, n.redisManager)
 	if err != nil {
 		klog.Fatalf("could not configure the proxy http service - %v", err)
 	}
 	n.proxy = handler
+
+	n.syncStatus = status.NewStatusSyncer(pod, status.Config{
+		Client:                 config.Client,
+		IngressLister:          n.store,
+		EndpointLister:         n.store,
+		RedisManager:           n.redisManager,
+		UpdateStatusOnShutdown: true,
+		PublishService:         config.PublishService,
+	})
+
 	return n
 }
 
@@ -95,18 +114,26 @@ type WLSController struct {
 	// errCh is used to detect errors with the HTTP processe
 	errCh chan error
 
+	syncQueue *task.Queue
+
+	syncStatus status.Syncer
+
 	// runningConfig contains the running configuration in the Backend
-	runningConfig *ingress.Configuration
+	runningConfig *wls_config.Configuration
 
 	isShuttingDown bool
 
 	store store.Storer
+
+	syncRateLimiter flowcontrol.RateLimiter
 
 	fileSystem filesystem.Filesystem
 
 	metricCollector metric.Collector
 
 	redisManager *redis.Manager
+
+	currentLeader uint32
 
 	proxy *wls_handler.WLSHandler
 }
@@ -115,16 +142,46 @@ type WLSController struct {
 func (n *WLSController) Start() {
 	klog.Info("Starting WLS Ingress controller")
 
-	n.store.Run(n.stopCh)
+	go n.syncQueue.Run(time.Second, n.stopCh)
+	// force initial sync
+	n.syncQueue.EnqueueTask(task.GetDummyObject("initial-sync"))
 
+	n.store.Run(n.stopCh)
 	n.redisManager.Start()
+
+	// we need to use the defined ingress class to allow multiple leaders
+	// in order to update information about ingress status
+	electionID := fmt.Sprintf("%v-%v", n.cfg.ElectionID, class.DefaultClass)
+	if class.IngressClass != "" {
+		electionID = fmt.Sprintf("%v-%v", n.cfg.ElectionID, class.IngressClass)
+	}
+
+	setupLeaderElection(&leaderElectionConfig{
+		Client:     n.cfg.Client,
+		ElectionID: electionID,
+		OnStartedLeading: func(stopCh chan struct{}) {
+			if n.syncStatus != nil {
+				go n.syncStatus.Run(stopCh)
+			}
+
+			n.setLeader(true)
+			n.metricCollector.OnStartedLeading(electionID)
+		},
+		OnStoppedLeading: func() {
+			n.setLeader(false)
+			n.metricCollector.OnStoppedLeading(electionID)
+		},
+		PodName:      n.podInfo.Name,
+		PodNamespace: n.podInfo.Namespace,
+		RedisManager: n.redisManager,
+	})
 
 	// start the http proxy service
 	klog.Info("Starting WLS HTTP Proxy process")
 
 	go func() {
 		server := &http.Server{
-			Addr:              fmt.Sprintf(":%v", 80),
+			Addr:              fmt.Sprintf(":%v", 8080),
 			Handler:           n.proxy,
 			ReadTimeout:       180 * time.Second,
 			ReadHeaderTimeout: 180 * time.Second,
@@ -147,7 +204,7 @@ func (n *WLSController) Start() {
 			}
 			if evt, ok := event.(store.Event); ok {
 				klog.V(3).Infof("Event %v received - object %v", evt.Type, evt.Obj)
-				//figure out if we need to send an update to redis
+				n.syncQueue.EnqueueSkippableTask(evt.Obj)
 			} else {
 				klog.Warningf("Unexpected event type received %T", event)
 			}
@@ -164,8 +221,44 @@ func (n *WLSController) Stop() error {
 	n.stopLock.Lock()
 	defer n.stopLock.Unlock()
 
+	if n.syncStatus != nil {
+		n.syncStatus.Shutdown()
+	}
+
 	klog.Info("Shutting down controller queues")
 	close(n.stopCh)
 	n.redisManager.Stop()
+	return nil
+}
+
+func (n *WLSController) setLeader(leader bool) {
+	var i uint32
+	if leader {
+		i = 1
+	}
+	atomic.StoreUint32(&n.currentLeader, i)
+}
+
+func (n *WLSController) isLeader() bool {
+	return atomic.LoadUint32(&n.currentLeader) != 0
+}
+
+// OnUpdate is called by the synchronization loop whenever configuration
+// changes were detected. The received backend Configuration is copied int the
+// running configuration
+func (n *WLSController) OnUpdate(ingressIn *wls_config.Configuration) error {
+	n.runningConfig = ingressIn
+	klog.V(4).Infof("Running config is now %+v", *n.runningConfig)
+	n.proxy.UpdateConfiguration(ingressIn)
+	//if I'm the leader, clean up the entries in redis immediately
+	if n.isLeader() {
+		var ips []string
+		for _, service := range ingressIn.Services {
+			for _, ep := range service.Backend.Endpoints {
+				ips = append(ips, ep.Address)
+			}
+		}
+		n.redisManager.Clean(ips)
+	}
 	return nil
 }

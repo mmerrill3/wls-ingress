@@ -47,6 +47,12 @@ program runs inside a Kubernetes cluster and local discovery is attempted.`)
 The class of an Ingress object is set using the annotation "kubernetes.io/ingress.class".
 All ingress classes are satisfied if this parameter is left empty.`)
 
+		publishSvc = flags.String("publish-service", "",
+			`Service fronting the Ingress controller.
+Takes the form "namespace/name". When used together with update-status, the
+controller mirrors the address of this service's endpoints to the load-balancer
+status of all Ingress objects it satisfies.`)
+
 		watchNamespace = flags.String("watch-namespace", apiv1.NamespaceAll,
 			`Namespace the controller watches for updates to Kubernetes objects.
 This includes Ingresses, Services and all configuration resources. All
@@ -64,7 +70,14 @@ defined by the healthz-port parameter are forwarded internally to this path.`)
 
 		enableMetrics = flags.Bool("enable-metrics", true,
 			`Enables the collection of NGINX metrics`)
-		httpPort      = flags.Int("http-port", 80, `Port to use for servicing HTTP traffic.`)
+
+		electionID = flags.String("election-id", "wls-ingress-controller-leader",
+			`Election id to use for Ingress status updates.`)
+
+		syncRateLimit = flags.Float32("sync-rate-limit", 0.3,
+			`Define the sync frequency upper limit`)
+
+		httpPort      = flags.Int("http-port", 8080, `Port to use for servicing HTTP traffic.`)
 		_             = flags.Int("status-port", 18080, `Port to use for exposing WLS status pages.`)
 		defServerPort = flags.Int("default-server-port", 8181, `Port to use for exposing the default server (catch-all).`)
 		healthzPort   = flags.Int("healthz-port", 10254, "Port to use for the healthz endpoint.")
@@ -119,6 +132,9 @@ defined by the healthz-port parameter are forwarded internally to this path.`)
 		KubeConfigFile: *kubeConfigFile,
 		EnableMetrics:  *enableMetrics,
 		Namespace:      *watchNamespace,
+		PublishService: *publishSvc,
+		ElectionID:     *electionID,
+		SyncRateLimit:  *syncRateLimit,
 		ListenPorts: &wls_config.ListenPorts{
 			Default: *defServerPort,
 			Health:  *healthzPort,
