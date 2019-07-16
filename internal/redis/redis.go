@@ -45,15 +45,14 @@ func (r *Manager) Clean(endpoints []string) error {
 		return err
 	}
 	for k, v := range entries {
-		for _, endpoint := range endpoints {
-			if contains(endpoints, endpoint) {
-				break
-			} else {
-				klog.V(2).Infof("removing entry for key %v with value %v", k, v)
-				cmd := r.client.Del(k)
-				if cmd.Err() != nil {
-					klog.Errorf("error deleting remote key - %v", cmd.Err())
-				}
+		if contains(endpoints, v) {
+			klog.V(4).Infof("Skipping removal for entry for key %v with value %v", k, v)
+			continue
+		} else {
+			klog.V(2).Infof("removing entry for key %v with value %v", k, v)
+			cmd := r.client.Del(k)
+			if cmd.Err() != nil {
+				klog.Errorf("error deleting remote key - %v", cmd.Err())
 			}
 		}
 	}
@@ -117,11 +116,13 @@ func (r *Manager) getAllEntries() (map[string]string, error) {
 		return nil, cmd.Err()
 	}
 	for _, cookie := range cmd.Val() {
+		klog.V(8).Infof("Found cookie key in redis %v", cookie)
 		endpoint, err := r.GetEndpoint(cookie, false)
 		if err != nil {
 			klog.Errorf("error getting remote value - %v", err)
 			continue
 		}
+
 		entryMap[cookie] = endpoint
 	}
 	return entryMap, nil
@@ -138,6 +139,7 @@ func (r *Manager) GetEndpoint(jsession string, updateExpire bool) (string, error
 			return "", cmd.Err()
 		}
 	}
+	klog.V(8).Infof("Found endpoint %v in redis for key %v", cmd.Val(), jsession)
 	if updateExpire {
 		expireCmd := r.client.Expire(jsession, time.Hour)
 		if expireCmd.Err() != nil {

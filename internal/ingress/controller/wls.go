@@ -14,6 +14,7 @@ limitations under the License.
 package controller
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sync"
@@ -135,6 +136,11 @@ type WLSController struct {
 
 	currentLeader uint32
 
+	// this is the main http listener that accepts requests before being proxied
+	httpListener *http.Server
+
+	idleConnsClosed chan struct{}
+
 	proxy *wls_handler.WLSHandler
 }
 
@@ -180,7 +186,8 @@ func (n *WLSController) Start() {
 	klog.Info("Starting WLS HTTP Proxy process")
 
 	go func() {
-		server := &http.Server{
+		n.idleConnsClosed = make(chan struct{})
+		n.httpListener = &http.Server{
 			Addr:              fmt.Sprintf(":%v", 8080),
 			Handler:           n.proxy,
 			ReadTimeout:       180 * time.Second,
@@ -188,7 +195,11 @@ func (n *WLSController) Start() {
 			WriteTimeout:      180 * time.Second,
 			IdleTimeout:       300 * time.Second,
 		}
-		klog.Fatal(server.ListenAndServe())
+		if err := n.httpListener.ListenAndServe(); err != http.ErrServerClosed {
+			// Error starting or closing listener:
+			klog.Errorf("HTTP server ListenAndServe: %v", err)
+		}
+		<-n.idleConnsClosed
 	}()
 
 	for {
@@ -227,7 +238,14 @@ func (n *WLSController) Stop() error {
 
 	klog.Info("Shutting down controller queues")
 	close(n.stopCh)
+	klog.Info("Shutting down redis manager")
 	n.redisManager.Stop()
+	klog.Info("Shutting down main http listener and idle connections")
+	if err := n.httpListener.Shutdown(context.Background()); err != nil {
+		// Error from closing listeners, or context timeout:
+		klog.Errorf("HTTP server Shutdown: %v", err)
+	}
+	close(n.idleConnsClosed)
 	return nil
 }
 
