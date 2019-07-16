@@ -72,10 +72,13 @@ func (h *WLSHandler) handleRootWLS() http.HandlerFunc {
 		if endpoints == nil {
 			klog.Error("No endpoints Error")
 			http.Error(w, "No endpoints Error", http.StatusNotFound)
+			r.Close = true
+			return
 		}
 		if len(endpoints) == 0 {
 			klog.Infof("Error looking up the upstream for host %v - nothing defined yet", host)
 			http.Error(w, "No Services Error", http.StatusServiceUnavailable)
+			r.Close = true
 			return
 		}
 		//check the header
@@ -84,6 +87,7 @@ func (h *WLSHandler) handleRootWLS() http.HandlerFunc {
 			if err != http.ErrNoCookie {
 				klog.Errorf("Error getting cookie from request - %v", r)
 				http.Error(w, "Cookie Error", http.StatusBadRequest)
+				r.Close = true
 				return
 			}
 			//send to random upstream, and get the cookie that comes back
@@ -136,6 +140,7 @@ func (h *WLSHandler) handleRootWLS() http.HandlerFunc {
 		if endpoint == "" {
 			klog.Infof("Error looking up the upstream for cookie %v - its gone", cookie)
 			http.Error(w, "Upstream Service Went Away Error", http.StatusServiceUnavailable)
+			r.Close = true
 			return
 		}
 		if val, ok := h.proxyMap.Load(endpoint); !ok {
