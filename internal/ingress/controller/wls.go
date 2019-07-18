@@ -262,7 +262,7 @@ func (n *WLSController) isLeader() bool {
 }
 
 // OnUpdate is called by the synchronization loop whenever configuration
-// changes were detected. The received backend Configuration is copied int the
+// changes were detected. The received backend Configuration is copied into the
 // running configuration
 func (n *WLSController) OnUpdate(ingressIn *wls_config.Configuration) error {
 	n.runningConfig = ingressIn
