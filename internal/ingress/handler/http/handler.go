@@ -192,6 +192,6 @@ func (h *WLSHandler) getEndpoints(host string) []ingress.Endpoint {
 			return service.Backend.Endpoints
 		}
 	}
-	klog.Warning("no services defined yet that match host %v", host)
+	klog.Warningf("no services defined yet that match host %v", host)
 	return nil
 }
