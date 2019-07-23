@@ -1,0 +1,15 @@
+apiVersion: v1
+name: wls-ingress
+version: 1.0.0
+appVersion: 0.1.1
+home: https://github.com/mmerrill3/wls-ingress
+description: An Ingress controller that uses tolerates application generated cookies.
+keywords:
+  - ingress
+  - wls-ingress
+sources:
+  - https://github.com/mmerrill3/wls-ingress
+maintainers:
+  - name: Michael Merrill
+    email: michael.merrill@vonage.com
+engine: gotpl
