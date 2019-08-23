@@ -34,17 +34,23 @@ const (
 
 // Configuration contains all the settings required by an Ingress controller
 type Configuration struct {
-	APIServerHost  string
-	KubeConfigFile string
-	Client         clientset.Interface
-	ResyncPeriod   time.Duration
-	DefaultService string
-	Namespace      string
-	ListenPorts    *wls_config.ListenPorts
-	EnableMetrics  bool
-	ElectionID     string
-	PublishService string
-	SyncRateLimit  float32
+	APIServerHost        string
+	KubeConfigFile       string
+	Client               clientset.Interface
+	ResyncPeriod         time.Duration
+	DefaultService       string
+	Namespace            string
+	ListenPorts          *wls_config.ListenPorts
+	EnableMetrics        bool
+	ElectionID           string
+	PublishService       string
+	SyncRateLimit        float32
+	RedisSentinelService string
+	RedisSentinelPort    int
+	RedisMasterName      string
+	RedisMaxRetries      int
+	RedisMinRetryBackoff time.Duration
+	RedisMaxRetryBackoff time.Duration
 }
 
 // syncIngress collects all the pieces required to assemble the

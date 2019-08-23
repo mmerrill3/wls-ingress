@@ -26,12 +26,17 @@ type Manager struct {
 	// go-redis client
 	// connection pool with redis
 	client *redis.Client
+
 	// The master name.
 	MasterName string
 	// A seed list of host:port addresses of sentinel nodes.
 	SentinelAddrs []string
 	//synchronization mutex for cleaning
 	mutx sync.Mutex
+
+	RedisMaxRetries      int
+	RedisMinRetryBackoff time.Duration
+	RedisMaxRetryBackoff time.Duration
 }
 
 //Clean cleans up the stale connections that are not in the list passed in.
@@ -63,10 +68,14 @@ func (r *Manager) Clean(endpoints []string) error {
 func (r *Manager) Start() error {
 	r.mutx = sync.Mutex{}
 	option := redis.FailoverOptions{
-		MasterName:    r.MasterName,
-		SentinelAddrs: r.SentinelAddrs,
+		MasterName:      r.MasterName,
+		SentinelAddrs:   r.SentinelAddrs,
+		MaxRetries:      r.RedisMaxRetries,
+		MaxRetryBackoff: r.RedisMaxRetryBackoff,
+		MinRetryBackoff: r.RedisMinRetryBackoff,
 	}
 	r.client = redis.NewFailoverClient(&option)
+
 	klog.Infof("starting redis manager with master name %v and seed urls %v", r.MasterName, r.SentinelAddrs)
 	if _, err := r.client.Ping().Result(); err != nil {
 		klog.Errorf("could not create a connection to redis server: %v", err)

@@ -60,7 +60,7 @@ namespaces are watched if this parameter is left empty.`)
 
 		defHealthzURL = flags.String("health-check-path", "/healthz",
 			`URL path of the health check endpoint.
-Configured inside the NGINX status server. All requests received on the port
+Configured inside the WLS Ingress status server. All requests received on the port
 defined by the healthz-port parameter are forwarded internally to this path.`)
 
 		defHealthCheckTimeout = flags.Int("health-check-timeout", 10, `Time limit, in seconds, for a probe to health-check-path to succeed.`)
@@ -69,7 +69,7 @@ defined by the healthz-port parameter are forwarded internally to this path.`)
 			`Show release information about the WLS Ingress controller and exit.`)
 
 		enableMetrics = flags.Bool("enable-metrics", true,
-			`Enables the collection of NGINX metrics`)
+			`Enables the collection of WLS Ingress metrics`)
 
 		electionID = flags.String("election-id", "wls-ingress-controller-leader",
 			`Election id to use for Ingress status updates.`)
@@ -77,12 +77,17 @@ defined by the healthz-port parameter are forwarded internally to this path.`)
 		syncRateLimit = flags.Float32("sync-rate-limit", 0.3,
 			`Define the sync frequency upper limit`)
 
-		httpPort      = flags.Int("http-port", 8080, `Port to use for servicing HTTP traffic.`)
-		_             = flags.Int("status-port", 18080, `Port to use for exposing WLS status pages.`)
-		defServerPort = flags.Int("default-server-port", 8181, `Port to use for exposing the default server (catch-all).`)
-		healthzPort   = flags.Int("healthz-port", 10254, "Port to use for the healthz endpoint.")
+		httpPort             = flags.Int("http-port", 8080, `Port to use for servicing HTTP traffic.`)
+		_                    = flags.Int("status-port", 18080, `Port to use for exposing WLS status pages.`)
+		defServerPort        = flags.Int("default-server-port", 8181, `Port to use for exposing the default server (catch-all).`)
+		healthzPort          = flags.Int("healthz-port", 10254, "Port to use for the healthz endpoint.")
+		redisSentinelService = flags.String("redis-sentinel-service", "redis-redis-ha.redis", "the service name within the cluster for HA redis")
+		redisSentinelPort    = flags.Int("redis-sentinel-port", 26379, "port where the HA redis service is running")
+		redisMasterName      = flags.String("redis-master-name", "mymaster", "the name of the redis HA master")
+		redisMaxRetries      = flags.Int("redis-max-retries", 3, "The limit on retrying the current master for a redi command")
+		redisMinRetryBackoff = flags.Duration("redis-min-retry-backoff", 5*(time.Second), "The minimum time the redis client can wait before retrying the redis master")
+		redisMaxRetryBackoff = flags.Duration("redis-max-retry-backoff", 10*(time.Second), "The maximum time the redis client can wait before retrying the redis master")
 	)
-
 	flags.MarkDeprecated("status-port", `The status port is a unix socket now.`)
 
 	flag.Set("logtostderr", "true")
@@ -140,6 +145,12 @@ defined by the healthz-port parameter are forwarded internally to this path.`)
 			Health:  *healthzPort,
 			HTTP:    *httpPort,
 		},
+		RedisSentinelService: *redisSentinelService,
+		RedisSentinelPort:    *redisSentinelPort,
+		RedisMasterName:      *redisMasterName,
+		RedisMaxRetries:      *redisMaxRetries,
+		RedisMinRetryBackoff: *redisMinRetryBackoff,
+		RedisMaxRetryBackoff: *redisMaxRetryBackoff,
 	}
 
 	return false, config, nil
