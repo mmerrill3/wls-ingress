@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,6 +48,7 @@ func NewWLSController(config *Configuration, mc metric.Collector, fs file.Filesy
 		Interface: config.Client.CoreV1().Events(config.Namespace),
 	})
 
+	redisURL := config.RedisSentinelService + ":" + strconv.Itoa(config.RedisSentinelPort)
 	n := &WLSController{
 		cfg:             config,
 		stopCh:          make(chan struct{}),
@@ -56,8 +58,11 @@ func NewWLSController(config *Configuration, mc metric.Collector, fs file.Filesy
 		runningConfig:   new(wls_config.Configuration),
 		metricCollector: mc,
 		redisManager: &redis.Manager{
-			MasterName:    "mymaster",
-			SentinelAddrs: []string{"redis-redis-ha.redis:26379"},
+			MasterName:           config.RedisMasterName,
+			SentinelAddrs:        []string{redisURL},
+			RedisMaxRetries:      config.RedisMaxRetries,
+			RedisMinRetryBackoff: config.RedisMinRetryBackoff,
+			RedisMaxRetryBackoff: config.RedisMaxRetryBackoff,
 		},
 		syncRateLimiter: flowcontrol.NewTokenBucketRateLimiter(config.SyncRateLimit, 1),
 	}
