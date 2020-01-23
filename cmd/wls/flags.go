@@ -87,6 +87,7 @@ defined by the healthz-port parameter are forwarded internally to this path.`)
 		redisMaxRetries      = flags.Int("redis-max-retries", 3, "The limit on retrying the current master for a redi command")
 		redisMinRetryBackoff = flags.Duration("redis-min-retry-backoff", 5*(time.Second), "The minimum time the redis client can wait before retrying the redis master")
 		redisMaxRetryBackoff = flags.Duration("redis-max-retry-backoff", 10*(time.Second), "The maximum time the redis client can wait before retrying the redis master")
+		redisNamespacePrefix = flags.String("redis-namespace-prefix", "WLS-ING", "the prefix for all keys that are stored in redis")
 	)
 	flags.MarkDeprecated("status-port", `The status port is a unix socket now.`)
 
@@ -151,6 +152,7 @@ defined by the healthz-port parameter are forwarded internally to this path.`)
 		RedisMaxRetries:      *redisMaxRetries,
 		RedisMinRetryBackoff: *redisMinRetryBackoff,
 		RedisMaxRetryBackoff: *redisMaxRetryBackoff,
+		RedisNamespacePrefix: *redisNamespacePrefix,
 	}
 
 	return false, config, nil
