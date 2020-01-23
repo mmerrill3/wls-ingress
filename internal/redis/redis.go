@@ -14,11 +14,16 @@ limitations under the License.
 package redis
 
 import (
-	"sync"
-	"time"
-
+	"bytes"
 	"github.com/go-redis/redis"
 	"k8s.io/klog"
+	"strings"
+	"sync"
+	"time"
+)
+
+const (
+	namespaceSeparator = ":"
 )
 
 //Manager describes the interface into redis
@@ -37,6 +42,10 @@ type Manager struct {
 	RedisMaxRetries      int
 	RedisMinRetryBackoff time.Duration
 	RedisMaxRetryBackoff time.Duration
+
+	// The namespace for the keys, default of WLS-ING:
+	// If set, this is what will get prepended to all redis keys
+	RedisNamespacePrefix string
 }
 
 //Clean cleans up the stale connections that are not in the list passed in.
@@ -87,7 +96,7 @@ func (r *Manager) Start() error {
 //AddCookie publishes the jsessionid cookie to redis for an endpoint
 func (r *Manager) AddCookie(jsession, endpoint string) error {
 	klog.V(2).Infof("adding entry for key %v with value %v", jsession, endpoint)
-	cmd := r.client.Set(jsession, endpoint, time.Hour)
+	cmd := r.client.Set(r.createNamespacedKey(jsession), endpoint, time.Hour)
 	if cmd.Err() != nil {
 		klog.Errorf("error setting remote value - %v", cmd.Err())
 	}
@@ -116,7 +125,7 @@ func (r *Manager) RemoveEndpoint(endpoint string) error {
 //getAllEntries gets all the current entries
 func (r *Manager) getAllEntries() (map[string]string, error) {
 	entryMap := make(map[string]string)
-	cmd := r.client.Keys("*")
+	cmd := r.client.Keys(r.createNamespacedKey("*"))
 	if cmd.Err() != nil {
 		if cmd.Err() == redis.Nil {
 			return nil, nil
@@ -139,7 +148,7 @@ func (r *Manager) getAllEntries() (map[string]string, error) {
 
 //GetEndpoint returns the endpoint (IP Address) for the jsession cookie
 func (r *Manager) GetEndpoint(jsession string, updateExpire bool) (string, error) {
-	cmd := r.client.Get(jsession)
+	cmd := r.client.Get(r.createNamespacedKey(jsession))
 	if cmd.Err() != nil {
 		if cmd.Err() == redis.Nil {
 			return "", nil
@@ -150,7 +159,7 @@ func (r *Manager) GetEndpoint(jsession string, updateExpire bool) (string, error
 	}
 	klog.V(8).Infof("Found endpoint %v in redis for key %v", cmd.Val(), jsession)
 	if updateExpire {
-		expireCmd := r.client.Expire(jsession, time.Hour)
+		expireCmd := r.client.Expire(r.createNamespacedKey(jsession), time.Hour)
 		if expireCmd.Err() != nil {
 			klog.Errorf("could not update the expiration on entry %v - %v", jsession, expireCmd.Err())
 		}
@@ -162,6 +171,23 @@ func (r *Manager) GetEndpoint(jsession string, updateExpire bool) (string, error
 func (r *Manager) Stop() error {
 	r.client.Close()
 	return nil
+}
+
+func (r *Manager) createNamespacedKey(key string) string {
+	if strings.Contains(key, r.createNamespaced()) {
+		return key
+	}
+	var retBuff bytes.Buffer
+	retBuff.WriteString(r.createNamespaced())
+	retBuff.WriteString(key)
+	return retBuff.String()
+}
+
+func (r *Manager) createNamespaced() string {
+	var retBuff bytes.Buffer
+	retBuff.WriteString(r.RedisNamespacePrefix)
+	retBuff.WriteString(namespaceSeparator)
+	return retBuff.String()
 }
 
 // Contains tells whether a contains x.

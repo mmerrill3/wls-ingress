@@ -51,6 +51,7 @@ type Configuration struct {
 	RedisMaxRetries      int
 	RedisMinRetryBackoff time.Duration
 	RedisMaxRetryBackoff time.Duration
+	RedisNamespacePrefix string
 }
 
 // syncIngress collects all the pieces required to assemble the

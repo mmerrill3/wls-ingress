@@ -63,6 +63,7 @@ func NewWLSController(config *Configuration, mc metric.Collector, fs file.Filesy
 			RedisMaxRetries:      config.RedisMaxRetries,
 			RedisMinRetryBackoff: config.RedisMinRetryBackoff,
 			RedisMaxRetryBackoff: config.RedisMaxRetryBackoff,
+			RedisNamespacePrefix: config.RedisNamespacePrefix,
 		},
 		syncRateLimiter: flowcontrol.NewTokenBucketRateLimiter(config.SyncRateLimit, 1),
 	}
