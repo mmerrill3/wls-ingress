@@ -70,7 +70,27 @@ func (h *WLSHandler) handleRootWLS() http.HandlerFunc {
 		}
 		endpoints := h.getEndpoints(host)
 		if endpoints == nil {
+
+			//handle the case where the endpoint could be just a class lookup
+			if r.Method == "GET" && strings.HasPrefix(r.RequestURI, "/bea_wls_internal/classeskkkkkkk") {
+				endpoint := h.getAnyEndpoint()
+				url, err := url.Parse("http://" + endpoint.Address + ":" + endpoint.Port)
+				if err != nil {
+					klog.Errorf("Error creating the url - %v", err)
+					http.Error(w, "URL Error", http.StatusInternalServerError)
+					return
+				}
+
+				rp := httputil.NewSingleHostReverseProxy(url)
+				rp.ServeHTTP(w, r)
+				return
+			}
 			klog.Error("No endpoints Error")
+			klog.Errorf("Requesting source: %s", r.RemoteAddr)
+			klog.Errorf("Headers: %+v", r.Header)
+			klog.Errorf("URI: %s", r.RequestURI)
+			klog.Errorf("Body: %s", r.Body)
+			klog.Errorf("Method: %s", r.Method)
 			http.Error(w, "No endpoints Error", http.StatusNotFound)
 			r.Close = true
 			return
@@ -193,5 +213,18 @@ func (h *WLSHandler) getEndpoints(host string) []ingress.Endpoint {
 		}
 	}
 	klog.Warningf("no services defined yet that match host %v", host)
+	return nil
+}
+
+func (h *WLSHandler) getAnyEndpoint() *ingress.Endpoint {
+	h.lock.Lock()
+	services := h.targetConfig.Services
+	h.lock.Unlock()
+	if services == nil {
+		klog.Warning("no services defined yet")
+	}
+	for _, service := range services {
+		return &service.Backend.Endpoints[0]
+	}
 	return nil
 }
